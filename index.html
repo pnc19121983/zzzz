@@ -268,7 +268,14 @@
         // CONFIG
         // --- CHÚ Ý QUAN TRỌNG: KHI ĐƯA LÊN GITHUB, HÃY THAY THẾ CHUỖI JSON BÊN DƯỚI BẰNG CẤU HÌNH FIREBASE CỦA RIÊNG BẠN ---
         const APP_ID_FALLBACK = 'itex-default-github';
-        const FIREBASE_CONFIG_PLACEHOLDER = '{"apiKey": "", "authDomain": "", "projectId": "", "storageBucket": "", "messagingSenderId": "", "appId": ""}';
+        const FIREBASE_CONFIG_PLACEHOLDER = `{
+  	"apiKey": "AIzaSyCY_WIQ_nAy4Guxg6OMRtNW-F6qhb2U4BI",
+  	"authDomain": "flutter-ai-playground-fd478.firebaseapp.com",
+  	"projectId": "flutter-ai-playground-fd478",
+  	"storageBucket": "flutter-ai-playground-fd478.firebasestorage.app",
+  	"messagingSenderId": "321777356764",
+ 	 "appId": "1:321777356764:web:7ea129a40de01a4cc5c919"
+	}`;
         
         // Sử dụng cấu hình được cung cấp từ môi trường Canvas (nếu có)
         const appId = typeof __app_id !== 'undefined' ? __app_id : APP_ID_FALLBACK;
