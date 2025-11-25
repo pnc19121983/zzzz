@@ -43,6 +43,7 @@
             transition: border-color 0.2s;
         }
         .input-field:focus { border-color: #14BC9C; ring: 2px solid #14BC9C; }
+        .input-error { border-color: #ef4444; ring: 2px solid #ef4444; }
 
         .option-btn {
             width: 100%;
@@ -106,7 +107,7 @@
                     
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Họ tên Giáo viên</label>
+                            <label class="block text-sm font-semibold text-gray-700 mb-2">Họ tên Giáo viên <span class="text-red-500">*</span></label>
                             <input type="text" id="t-name" class="input-field" placeholder="Nhập tên của bạn">
                         </div>
                         <div>
@@ -162,7 +163,7 @@
                             </div>
                         </div>
                         <div class="mt-4 text-right">
-                            <button onclick="processBatchEntry()" class="btn bg-blue-600 hover:bg-blue-700">⚡ Xử Lý & Tạo Danh Sách</button>
+                            <button onclick="processBatchEntry(this)" class="btn bg-blue-600 hover:bg-blue-700">⚡ Xử Lý & Tạo Danh Sách</button>
                         </div>
                     </div>
 
@@ -172,7 +173,7 @@
 
                     <div class="flex flex-wrap gap-4 border-t pt-6">
                         <button onclick="addQuestion()" class="btn bg-green-500 hover:bg-green-600">+ Thêm Thủ Công</button>
-                        <button onclick="saveExam()" class="btn ml-auto">💾 Lưu & Lấy Mã Đề</button>
+                        <button onclick="saveExam(this)" class="btn ml-auto">💾 Lưu & Lấy Mã Đề</button>
                     </div>
                 </div>
 
@@ -264,6 +265,9 @@
         let currentExamData = null; // For student
         let examTimer = null;
 
+        // Max Base64 size allowed for Firestore (approx 1.4MB in Base64 string length, safely below 1MB document limit)
+        const MAX_BASE64_SIZE = 1468006; // Corresponds to approx 1.0MB file size when encoded.
+
         // AUTH & INIT FLOW
         if (Object.keys(firebaseConfig).length > 0) {
             app = initializeApp(firebaseConfig);
@@ -351,7 +355,7 @@
         }
 
         // --- BATCH UPLOAD LOGIC ---
-        window.processBatchEntry = async () => {
+        window.processBatchEntry = async (btnElement) => {
             const excelInput = document.getElementById('batch-excel');
             const qImgsInput = document.getElementById('batch-q-imgs');
             const sImgsInput = document.getElementById('batch-s-imgs');
@@ -360,7 +364,7 @@
             if(!excelInput.files[0]) return alert("Vui lòng chọn file Excel đáp án!");
             if(qImgsInput.files.length === 0) return alert("Vui lòng chọn ảnh câu hỏi!");
 
-            const btn = event.target;
+            const btn = btnElement || event.target;
             btn.disabled = true;
             btn.innerText = "Đang xử lý...";
 
@@ -587,7 +591,7 @@
                 container.innerHTML = `
                     <label class="text-sm font-bold mb-2 block">Cấu hình Đúng/Sai:</label>
                     <div class="grid grid-cols-4 gap-2">
-                        ${['a','b','c','d'].map(label => `
+                        ${['a','b','c','d'].map((label, k) => `
                             <div class="text-center">
                                 <span class="block text-xs font-bold uppercase">Ý ${label}</span>
                                 <select class="input-field mt-1 text-sm q-ans-tf">
@@ -601,8 +605,8 @@
             }
         }
 
-        window.saveExam = async () => {
-            const btn = event.target;
+        window.saveExam = async (btnElement) => {
+            const btn = btnElement || event.target;
             btn.disabled = true;
             btn.innerText = "Đang xử lý...";
 
@@ -615,12 +619,20 @@
             }
 
             try {
-                const tName = document.getElementById('t-name').value;
+                const tNameInput = document.getElementById('t-name');
+                const tName = tNameInput.value.trim();
                 const tTime = document.getElementById('t-time').value;
                 const tReview = document.getElementById('t-review').checked;
                 const questionsDivs = document.getElementById('questions-list').children;
                 
-                if (!tName) throw new Error("Vui lòng nhập tên giáo viên");
+                // --- VALIDATION WITH UI FEEDBACK ---
+                if (!tName) {
+                    tNameInput.focus();
+                    tNameInput.classList.add('input-error');
+                    tNameInput.addEventListener('input', () => tNameInput.classList.remove('input-error'), {once: true});
+                    throw new Error("Vui lòng nhập tên giáo viên vào ô phía trên.");
+                }
+
                 if (questionsDivs.length === 0) throw new Error("Đề thi phải có ít nhất 1 câu hỏi");
 
                 const questions = [];
@@ -628,7 +640,6 @@
                     const div = questionsDivs[i];
                     const type = div.querySelector('.q-type').value;
                     
-                    // Logic lấy ảnh: Ưu tiên ảnh hidden (batch) nếu có, nếu không thì lấy từ input file
                     const hiddenQ = div.querySelector('.q-img-base64-hidden').value;
                     const hiddenS = div.querySelector('.q-sol-base64-hidden').value;
 
@@ -643,10 +654,19 @@
                     }
 
                     if (!imgBase64) {
-                         // Fallback for demo only
-                         // imgBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
                          throw new Error(`Câu ${i+1} chưa chọn ảnh đề bài!`);
                     }
+
+                    // --- NEW SIZE CHECK ---
+                    if (imgBase64.length > MAX_BASE64_SIZE) {
+                         // Base64 string is about 1.33x the binary data size. 1.46MB Base64 is ~1MB binary.
+                        throw new Error(`Kích thước ảnh câu hỏi ${i + 1} quá lớn (${(imgBase64.length/1024/1024).toFixed(2)}MB). Vui lòng sử dụng ảnh có kích thước dưới 1MB.`);
+                    }
+                    if (solBase64 && solBase64.length > MAX_BASE64_SIZE) {
+                        throw new Error(`Kích thước ảnh lời giải câu hỏi ${i + 1} quá lớn (${(solBase64.length/1024/1024).toFixed(2)}MB). Vui lòng sử dụng ảnh có kích thước dưới 1MB.`);
+                    }
+                    // --- END NEW SIZE CHECK ---
+
 
                     let answerData = {};
                     if (type === 'mcq') {
@@ -677,18 +697,28 @@
 
                 const examId = Math.random().toString(36).substring(2, 8).toUpperCase();
                 
-                // --- FIXED PATHS ---
-                // Store Exam in Collection: 'itex_exams', Document: {examId}
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams', examId), {
+                // --- 1. Save Main Doc (Metadata ONLY) ---
+                const examMetadata = {
                     teacher: tName,
                     time: parseInt(tTime),
                     allow_review: tReview,
                     scoring,
-                    questions,
+                    question_count: questions.length, // Store count
                     created_at: new Date().toISOString()
-                });
+                };
+                
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams', examId), examMetadata);
 
-                // Store Results in Collection: 'itex_results', Document: {examId}
+                // --- 2. Save Questions Individually (Split) ---
+                const writePromises = questions.map((q, index) => {
+                    // Save question data. No need to store examId within the question doc itself, 
+                    // as the document ID already links it: {examId}_{index}
+                    return setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_questions', `${examId}_${index}`), q);
+                });
+                
+                await Promise.all(writePromises);
+
+                // --- 3. Create Results Doc ---
                 await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', examId), {
                     results: []
                 });
@@ -697,8 +727,10 @@
                 location.reload(); 
 
             } catch (e) {
-                alert("Lỗi: " + e.message);
-                console.error(e);
+                alert(e.message);
+                if (!e.message.startsWith("Vui lòng") && !e.message.startsWith("Đề thi") && !e.message.startsWith("Câu") && !e.message.startsWith("Kích thước")) {
+                     console.error(e);
+                }
                 btn.disabled = false;
                 btn.innerText = "💾 Lưu & Lấy Mã Đề";
             }
@@ -793,7 +825,7 @@
             btn.disabled = true;
 
             try {
-                // Fix Path: itex_exams/{examId}
+                // Fix Path: itex_exams/{examId} (metadata)
                 const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams', examId));
                 if (!docSnap.exists()) throw new Error("Mã đề không tồn tại");
 
@@ -828,24 +860,50 @@
                 if (existing) return alert("Bạn đã nộp bài thi này rồi! Không thể thi lại.");
             }
 
-            // Randomize Questions (Group Shuffle Logic like Streamlit)
-            const groups = { mcq: [], true_false: [], short_answer: [] };
-            currentExamData.questions.forEach((q, idx) => {
-                groups[q.type].push({ ...q, originalIdx: idx });
-            });
-            
-            // Shuffle each group
-            const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
-            const shuffledQ = [...shuffle(groups.mcq), ...shuffle(groups.true_false), ...shuffle(groups.short_answer)];
-            currentExamData.shuffledQuestions = shuffledQ;
+            const btn = event.target;
+            btn.innerText = "Đang tải đề...";
+            btn.disabled = true;
 
-            // UI Setup
-            document.getElementById('student-info-form').classList.add('hidden');
-            document.getElementById('taking-exam').classList.remove('hidden');
-            document.getElementById('display-s-name').innerText = name;
+            try {
+                // --- FETCH QUESTIONS (Split Logic) ---
+                // We know 'question_count' from metadata. fetch id_0, id_1, ...
+                const qPromises = [];
+                for(let i=0; i<currentExamData.question_count; i++) {
+                    qPromises.push(getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_questions', `${currentExamData.id}_${i}`)));
+                }
+                
+                const qSnaps = await Promise.all(qPromises);
+                const fetchedQuestions = qSnaps.map(s => {
+                    if(!s.exists()) throw new Error("Lỗi tải câu hỏi. Dữ liệu không đầy đủ.");
+                    return s.data();
+                });
 
-            renderStudentQuestions();
-            startTimer(currentExamData.time);
+                currentExamData.questions = fetchedQuestions;
+
+                // Randomize Questions (Group Shuffle Logic like Streamlit)
+                const groups = { mcq: [], true_false: [], short_answer: [] };
+                currentExamData.questions.forEach((q, idx) => {
+                    groups[q.type].push({ ...q, originalIdx: idx });
+                });
+                
+                // Shuffle each group
+                const shuffle = (arr) => arr.sort(() => Math.random() - 0.5);
+                const shuffledQ = [...shuffle(groups.mcq), ...shuffle(groups.true_false), ...shuffle(groups.short_answer)];
+                currentExamData.shuffledQuestions = shuffledQ;
+
+                // UI Setup
+                document.getElementById('student-info-form').classList.add('hidden');
+                document.getElementById('taking-exam').classList.remove('hidden');
+                document.getElementById('display-s-name').innerText = name;
+
+                renderStudentQuestions();
+                startTimer(currentExamData.time);
+
+            } catch(e) {
+                alert("Lỗi khi tải đề thi: " + e.message);
+                btn.innerText = "🚀 BẮT ĐẦU LÀM BÀI";
+                btn.disabled = false;
+            }
         }
 
         const renderStudentQuestions = () => {
