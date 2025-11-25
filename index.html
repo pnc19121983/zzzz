@@ -209,7 +209,8 @@
                         <input type="text" id="s-name" class="input-field" placeholder="Họ và tên học sinh">
                         <input type="text" id="s-school" class="input-field" placeholder="Trường">
                         <input type="text" id="s-class" class="input-field" placeholder="Lớp">
-                        <button onclick="startExam()" class="btn w-full py-3 font-bold bg-green-600 hover:bg-green-700">🚀 BẮT ĐẦU LÀM BÀI</button>
+                        <!-- Đã sửa: Truyền đối tượng event vào hàm startExam -->
+                        <button onclick="startExam(event)" class="btn w-full py-3 font-bold bg-green-600 hover:bg-green-700">🚀 BẮT ĐẦU LÀM BÀI</button>
                     </div>
                 </div>
 
@@ -254,7 +255,7 @@
         <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
             <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-3">Thông Báo</h3>
             <p id="modal-message" class="text-gray-600 mb-6"></p>
-            <button onclick="document.getElementById('custom-alert-modal').classList.add('hidden')" class="btn bg-gray-500 hover:bg-gray-600">Đóng</button>
+            <button id="modal-close-btn" onclick="document.getElementById('custom-alert-modal').classList.add('hidden')" class="btn bg-gray-500 hover:bg-gray-600">Đóng</button>
         </div>
     </div>
 
@@ -269,13 +270,13 @@
         // --- CHÚ Ý QUAN TRỌNG: KHI ĐƯA LÊN GITHUB, HÃY THAY THẾ CHUỖI JSON BÊN DƯỚI BẰNG CẤU HÌNH FIREBASE CỦA RIÊNG BẠN ---
         const APP_ID_FALLBACK = 'itex-default-github';
         const FIREBASE_CONFIG_PLACEHOLDER = `{
-  	"apiKey": "AIzaSyCY_WIQ_nAy4Guxg6OMRtNW-F6qhb2U4BI",
-  	"authDomain": "flutter-ai-playground-fd478.firebaseapp.com",
-  	"projectId": "flutter-ai-playground-fd478",
-  	"storageBucket": "flutter-ai-playground-fd478.firebasestorage.app",
-  	"messagingSenderId": "321777356764",
- 	 "appId": "1:321777356764:web:7ea129a40de01a4cc5c919"
-	}`;
+	"apiKey": "AIzaSyCY_WIQ_nAy4Guxg6OMRtNW-F6qhb2U4BI",
+	"authDomain": "flutter-ai-playground-fd478.firebaseapp.com",
+	"projectId": "flutter-ai-playground-fd478",
+	"storageBucket": "flutter-ai-playground-fd478.firebasestorage.app",
+	"messagingSenderId": "321777356764",
+	"appId": "1:321777356764:web:7ea129a40de01a4cc5c919"
+}`;
         
         // Sử dụng cấu hình được cung cấp từ môi trường Canvas (nếu có)
         const appId = typeof __app_id !== 'undefined' ? __app_id : APP_ID_FALLBACK;
@@ -302,10 +303,25 @@
         const MAX_BASE64_SIZE = 1468006; // Corresponds to approx 1.0MB file size when encoded.
         
         // Custom Alert Function (Replaces native alert)
-        window.customAlert = (message, title = "Thông Báo") => {
+        // Cập nhật để nhận callback/hàm hành động khi đóng alert
+        window.customAlert = (message, title = "Thông Báo", onClose = null) => {
             document.getElementById('modal-title').innerText = title;
-            document.getElementById('modal-message').innerText = message;
-            document.getElementById('custom-alert-modal').classList.remove('hidden');
+            document.getElementById('modal-message').innerHTML = message; // Dùng innerHTML cho mã đề đậm
+            const modal = document.getElementById('custom-alert-modal');
+            const closeBtn = document.getElementById('modal-close-btn');
+
+            // Xóa sự kiện cũ
+            closeBtn.onclick = null;
+            
+            // Đặt sự kiện mới
+            closeBtn.onclick = () => {
+                modal.classList.add('hidden');
+                if (typeof onClose === 'function') {
+                    onClose();
+                }
+            };
+            
+            modal.classList.remove('hidden');
         };
 
         // Hàm kiểm tra cấu hình Firebase
@@ -769,8 +785,18 @@
                     results: []
                 });
 
-                customAlert(`✅ Tạo đề thành công!\nMÃ ĐỀ THI: ${examId}`);
-                location.reload(); 
+                // CẬP NHẬT: Hiển thị mã đề và chỉ tải lại trang khi người dùng đóng alert
+                const alertMessage = `
+                    <p class="mb-3">✅ Tạo đề thành công!</p>
+                    <p class="text-xl font-extrabold text-primary p-3 bg-gray-100 rounded-lg border border-primary">
+                        MÃ ĐỀ THI: ${examId}
+                    </p>
+                    <p class="mt-3 text-sm text-gray-500">Vui lòng ghi lại mã đề này.</p>
+                `;
+                customAlert(alertMessage, "THÔNG BÁO QUAN TRỌNG", () => {
+                    // Hành động sau khi người dùng đóng alert
+                    location.reload(); 
+                });
 
             } catch (e) {
                 customAlert(e.message, "Lỗi Lưu Đề Thi");
@@ -901,7 +927,8 @@
             }
         }
 
-        window.startExam = async () => {
+        // Đã sửa: Thêm tham số event vào định nghĩa hàm
+        window.startExam = async (event) => {
             const name = document.getElementById('s-name').value.trim();
             const school = document.getElementById('s-school').value.trim();
             const sClass = document.getElementById('s-class').value.trim();
@@ -918,7 +945,8 @@
                 if (existing) return customAlert("Bạn đã nộp bài thi này rồi! Không thể thi lại.");
             }
 
-            const btn = event.target;
+            // Dòng này giờ hoạt động vì event đã được truyền vào
+            const btn = event.target; 
             btn.innerText = "Đang tải đề...";
             btn.disabled = true;
 
