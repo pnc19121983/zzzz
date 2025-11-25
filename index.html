@@ -6,7 +6,7 @@
     <title>iTeX - Hệ Thống Kiểm Tra Online</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- SheetJS để xuất Excel -->
+    <!-- SheetJS để xuất/nhập Excel -->
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
@@ -139,12 +139,39 @@
                         </div>
                     </div>
 
+                    <!-- Batch Upload Section (New) -->
+                    <div class="bg-blue-50 p-6 rounded-xl border border-blue-200 mb-8">
+                        <h3 class="text-lg font-bold text-blue-800 mb-4 flex items-center">
+                            🚀 Nhập Liệu Hàng Loạt (Excel + Ảnh)
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">1. File Đáp án (Excel)</label>
+                                <input type="file" id="batch-excel" accept=".xlsx, .xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200">
+                                <p class="text-xs text-gray-500 mt-1">Cột A: STT, Cột B: Đáp án</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">2. Ảnh Câu hỏi (Chọn nhiều)</label>
+                                <input type="file" id="batch-q-imgs" multiple accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200">
+                                <p class="text-xs text-gray-500 mt-1">Tên file chứa số câu (VD: cau1.jpg, 1.png)</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-1">3. Ảnh Lời giải (Chọn nhiều)</label>
+                                <input type="file" id="batch-s-imgs" multiple accept="image/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-100 file:text-blue-700 hover:file:bg-blue-200">
+                                <p class="text-xs text-gray-500 mt-1">Tùy chọn. Tên file chứa số câu.</p>
+                            </div>
+                        </div>
+                        <div class="mt-4 text-right">
+                            <button onclick="processBatchEntry()" class="btn bg-blue-600 hover:bg-blue-700">⚡ Xử Lý & Tạo Danh Sách</button>
+                        </div>
+                    </div>
+
+                    <h3 class="text-lg font-bold text-gray-800 mb-2 border-b pb-2">Danh Sách Câu Hỏi</h3>
                     <!-- Questions List -->
                     <div id="questions-list" class="space-y-6 mb-6"></div>
 
                     <div class="flex flex-wrap gap-4 border-t pt-6">
-                        <button onclick="addQuestion()" class="btn bg-green-500 hover:bg-green-600">+ Thêm Câu Hỏi</button>
-                        <button onclick="addSampleData()" class="btn bg-blue-500 hover:bg-blue-600">Dùng Mẫu Thử</button>
+                        <button onclick="addQuestion()" class="btn bg-green-500 hover:bg-green-600">+ Thêm Thủ Công</button>
                         <button onclick="saveExam()" class="btn ml-auto">💾 Lưu & Lấy Mã Đề</button>
                     </div>
                 </div>
@@ -287,16 +314,23 @@
         // Helper: Convert File to Base64
         window.fileToBase64 = (input) => {
             return new Promise((resolve, reject) => {
+                if(input instanceof File) {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result.split(',')[1]); 
+                    reader.onerror = error => reject(error);
+                    reader.readAsDataURL(input);
+                    return;
+                }
+                // Handle normal input element
                 const file = input.files[0];
                 if (!file) { resolve(null); return; }
                 const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(',')[1]); // remove data:image/...;base64,
+                reader.onload = () => resolve(reader.result.split(',')[1]); 
                 reader.onerror = error => reject(error);
                 reader.readAsDataURL(file);
             });
         }
 
-        // Helper: Image Preview
         window.previewImage = (input, imgId) => {
             const file = input.files[0];
             if(file){
@@ -310,6 +344,184 @@
             }
         }
 
+        // Helper function to extract number from filename (e.g. "cau1.jpg" -> 1)
+        function extractNumber(filename) {
+            const match = filename.match(/\d+/);
+            return match ? parseInt(match[0]) : null;
+        }
+
+        // --- BATCH UPLOAD LOGIC ---
+        window.processBatchEntry = async () => {
+            const excelInput = document.getElementById('batch-excel');
+            const qImgsInput = document.getElementById('batch-q-imgs');
+            const sImgsInput = document.getElementById('batch-s-imgs');
+            const container = document.getElementById('questions-list');
+            
+            if(!excelInput.files[0]) return alert("Vui lòng chọn file Excel đáp án!");
+            if(qImgsInput.files.length === 0) return alert("Vui lòng chọn ảnh câu hỏi!");
+
+            const btn = event.target;
+            btn.disabled = true;
+            btn.innerText = "Đang xử lý...";
+
+            // 1. Parse Excel
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    // Convert to array of arrays, assuming Header is Row 1
+                    const rows = XLSX.utils.sheet_to_json(firstSheet, {header: 1}); 
+                    
+                    // Filter valid rows (skip header if needed, look for data)
+                    // Assumption: Column 0 is Order, Column 1 is Answer
+                    const validRows = rows.filter(r => r[0] && r[1]);
+                    
+                    // 2. Map Images
+                    const qImgMap = {};
+                    const sImgMap = {};
+                    
+                    Array.from(qImgsInput.files).forEach(f => {
+                        const num = extractNumber(f.name);
+                        if(num !== null) qImgMap[num] = f;
+                    });
+                     Array.from(sImgsInput.files).forEach(f => {
+                        const num = extractNumber(f.name);
+                        if(num !== null) sImgMap[num] = f;
+                    });
+
+                    // Clear current list if needed or append? Let's clear for batch
+                    container.innerHTML = '';
+
+                    // 3. Loop and Create
+                    for(let i=0; i<validRows.length; i++) {
+                        const row = validRows[i];
+                        // Try to find STT. If first row is header like "STT", skip it
+                        if(isNaN(parseInt(row[0]))) continue; 
+
+                        const stt = parseInt(row[0]);
+                        const rawAns = String(row[1]).trim().toUpperCase();
+                        
+                        // Determine Type
+                        let type = 'short_answer';
+                        let ans = rawAns;
+                        let answers = [];
+
+                        if(['A','B','C','D'].includes(rawAns) && rawAns.length === 1) {
+                            type = 'mcq';
+                        } else if (rawAns.length === 4 && /^[ĐS]+$/.test(rawAns)) {
+                            type = 'true_false';
+                            answers = rawAns.split(''); // ['Đ','S','Đ','S']
+                        }
+
+                        // Get Images (async base64 conversion)
+                        const qFile = qImgMap[stt];
+                        const sFile = sImgMap[stt];
+                        
+                        let qBase64 = null;
+                        let sBase64 = null;
+
+                        if(qFile) qBase64 = await fileToBase64(qFile);
+                        if(sFile) sBase64 = await fileToBase64(sFile);
+
+                        // Create DOM Element
+                        // We use the existing addQuestion logic but populate it
+                        // Since addQuestion creates empty, we will create manually here for performance
+                        // and map values directly.
+                        
+                        const div = document.createElement('div');
+                        const idx = container.children.length; // Use current length for ID uniqueness
+                        div.className = "card border border-gray-200 shadow-sm relative";
+                        
+                        // Pre-fill HTML based on Type
+                        let ansHtml = '';
+                        if(type === 'mcq') {
+                            ansHtml = `
+                                <label class="text-sm font-bold">Đáp án đúng:</label>
+                                <select class="input-field mt-1 q-ans-mcq">
+                                    <option value="A" ${ans==='A'?'selected':''}>A</option>
+                                    <option value="B" ${ans==='B'?'selected':''}>B</option>
+                                    <option value="C" ${ans==='C'?'selected':''}>C</option>
+                                    <option value="D" ${ans==='D'?'selected':''}>D</option>
+                                </select>
+                            `;
+                        } else if(type === 'short_answer') {
+                            ansHtml = `
+                                <label class="text-sm font-bold">Nhập đáp án đúng (Text):</label>
+                                <input type="text" class="input-field mt-1 q-ans-sa" value="${ans}">
+                            `;
+                        } else if (type === 'true_false') {
+                            ansHtml = `
+                                <label class="text-sm font-bold mb-2 block">Cấu hình Đúng/Sai:</label>
+                                <div class="grid grid-cols-4 gap-2">
+                                    ${['a','b','c','d'].map((label, k) => `
+                                        <div class="text-center">
+                                            <span class="block text-xs font-bold uppercase">Ý ${label}</span>
+                                            <select class="input-field mt-1 text-sm q-ans-tf">
+                                                <option value="S" ${answers[k]==='S'?'selected':''}>Sai</option>
+                                                <option value="Đ" ${answers[k]==='Đ'?'selected':''}>Đúng</option>
+                                            </select>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            `;
+                        }
+
+                        div.innerHTML = `
+                            <div class="absolute top-4 right-4">
+                                <button onclick="this.closest('.card').remove()" class="text-red-500 hover:text-red-700 font-bold">✕ Xóa</button>
+                            </div>
+                            <h4 class="font-bold text-gray-700 mb-2">Câu hỏi ${idx + 1} (Import từ Excel: STT ${stt})</h4>
+                            
+                            <div class="mb-4">
+                                <label class="text-sm font-semibold">Loại câu hỏi:</label>
+                                <select class="input-field mt-1 q-type" onchange="changeQType(this, ${idx})">
+                                    <option value="mcq" ${type==='mcq'?'selected':''}>Trắc nghiệm (A/B/C/D)</option>
+                                    <option value="true_false" ${type==='true_false'?'selected':''}>Đúng/Sai (4 ý)</option>
+                                    <option value="short_answer" ${type==='short_answer'?'selected':''}>Trả lời ngắn</option>
+                                </select>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="text-sm font-semibold block mb-1">Ảnh Đề bài:</label>
+                                    <input type="file" accept="image/*" class="text-sm q-img-file" onchange="previewImage(this, 'preview-q-${idx}')">
+                                    <!-- Hidden input to store base64 from batch -->
+                                    <input type="hidden" class="q-img-base64-hidden" value="${qBase64 || ''}">
+                                    <img id="preview-q-${idx}" class="mt-2 h-32 object-contain ${qBase64 ? '' : 'hidden'} border rounded" src="${qBase64 ? 'data:image/png;base64,'+qBase64 : ''}">
+                                    ${!qBase64 ? '<p class="text-xs text-red-500 mt-1">⚠️ Không tìm thấy ảnh (VD: cau'+stt+'.jpg)</p>' : ''}
+                                </div>
+                                <div>
+                                    <label class="text-sm font-semibold block mb-1">Ảnh Lời giải (Tùy chọn):</label>
+                                    <input type="file" accept="image/*" class="text-sm q-sol-file" onchange="previewImage(this, 'preview-s-${idx}')">
+                                    <input type="hidden" class="q-sol-base64-hidden" value="${sBase64 || ''}">
+                                    <img id="preview-s-${idx}" class="mt-2 h-32 object-contain ${sBase64 ? '' : 'hidden'} border rounded" src="${sBase64 ? 'data:image/png;base64,'+sBase64 : ''}">
+                                </div>
+                            </div>
+
+                            <div class="bg-gray-50 p-3 rounded border" id="ans-container-${idx}">
+                                ${ansHtml}
+                            </div>
+                        `;
+                        container.appendChild(div);
+                    }
+
+                    alert(`Đã xử lý xong! Tìm thấy ${validRows.length-1} dòng dữ liệu.`); // -1 for header estimate
+                    btn.disabled = false;
+                    btn.innerText = "⚡ Xử Lý & Tạo Danh Sách";
+
+                } catch (err) {
+                    console.error(err);
+                    alert("Lỗi xử lý file: " + err.message);
+                    btn.disabled = false;
+                    btn.innerText = "⚡ Xử Lý & Tạo Danh Sách";
+                }
+            };
+            reader.readAsArrayBuffer(excelInput.files[0]);
+        }
+
+
         window.addQuestion = () => {
             const container = document.getElementById('questions-list');
             const idx = container.children.length;
@@ -321,7 +533,6 @@
                 </div>
                 <h4 class="font-bold text-gray-700 mb-2">Câu hỏi ${idx + 1}</h4>
                 
-                <!-- Loại câu hỏi -->
                 <div class="mb-4">
                     <label class="text-sm font-semibold">Loại câu hỏi:</label>
                     <select class="input-field mt-1 q-type" onchange="changeQType(this, ${idx})">
@@ -331,24 +542,22 @@
                     </select>
                 </div>
 
-                <!-- Ảnh câu hỏi -->
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="text-sm font-semibold block mb-1">Ảnh Đề bài:</label>
                         <input type="file" accept="image/*" class="text-sm q-img-file" onchange="previewImage(this, 'preview-q-${idx}')">
+                        <input type="hidden" class="q-img-base64-hidden" value="">
                         <img id="preview-q-${idx}" class="mt-2 h-32 object-contain hidden border rounded">
-                        <input type="hidden" class="q-img-base64-manual" value=""> <!-- For sample data -->
                     </div>
                     <div>
                         <label class="text-sm font-semibold block mb-1">Ảnh Lời giải (Tùy chọn):</label>
                         <input type="file" accept="image/*" class="text-sm q-sol-file" onchange="previewImage(this, 'preview-s-${idx}')">
+                        <input type="hidden" class="q-sol-base64-hidden" value="">
                         <img id="preview-s-${idx}" class="mt-2 h-32 object-contain hidden border rounded">
                     </div>
                 </div>
 
-                <!-- Đáp án -->
                 <div class="bg-gray-50 p-3 rounded border" id="ans-container-${idx}">
-                    <!-- Mặc định MCQ -->
                     <label class="text-sm font-bold">Đáp án đúng:</label>
                     <select class="input-field mt-1 q-ans-mcq">
                         <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
@@ -356,19 +565,7 @@
                 </div>
             `;
             container.appendChild(div);
-            return div; // Return for sample data usage
-        }
-
-        window.addSampleData = () => {
-            // Fill teacher name
-            document.getElementById('t-name').value = "Giáo Viên Mẫu";
-            
-            // Add a question
-            const qDiv = window.addQuestion();
-            
-            // Note: Cannot programmatically set file inputs due to security.
-            // We will inject a dummy base64 image for testing purposes if no file is selected.
-            alert("Đã thêm câu hỏi mẫu. Vui lòng CHỌN ẢNH ĐỀ BÀI thủ công để thử nghiệm (hoặc hệ thống sẽ dùng ảnh rỗng khi lưu).");
+            return div; 
         }
 
         window.changeQType = (select, idx) => {
@@ -409,6 +606,14 @@
             btn.disabled = true;
             btn.innerText = "Đang xử lý...";
 
+            // Check if DB is initialized
+            if (!db) {
+                alert("Lỗi: Firebase chưa được kết nối hoặc cấu hình sai.");
+                btn.disabled = false;
+                btn.innerText = "💾 Lưu & Lấy Mã Đề";
+                return;
+            }
+
             try {
                 const tName = document.getElementById('t-name').value;
                 const tTime = document.getElementById('t-time').value;
@@ -423,13 +628,22 @@
                     const div = questionsDivs[i];
                     const type = div.querySelector('.q-type').value;
                     
-                    // Xử lý ảnh (Async)
-                    let imgBase64 = await fileToBase64(div.querySelector('.q-img-file'));
-                    let solBase64 = await fileToBase64(div.querySelector('.q-sol-file'));
+                    // Logic lấy ảnh: Ưu tiên ảnh hidden (batch) nếu có, nếu không thì lấy từ input file
+                    const hiddenQ = div.querySelector('.q-img-base64-hidden').value;
+                    const hiddenS = div.querySelector('.q-sol-base64-hidden').value;
+
+                    let imgBase64 = hiddenQ;
+                    if(!imgBase64) {
+                        imgBase64 = await fileToBase64(div.querySelector('.q-img-file'));
+                    }
                     
-                    // Fallback for testing/sample without files
+                    let solBase64 = hiddenS;
+                    if(!solBase64) {
+                        solBase64 = await fileToBase64(div.querySelector('.q-sol-file'));
+                    }
+
                     if (!imgBase64) {
-                         // 1x1 Pixel Transparent PNG for testing if user didn't upload
+                         // Fallback for demo only
                          // imgBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
                          throw new Error(`Câu ${i+1} chưa chọn ảnh đề bài!`);
                     }
@@ -463,8 +677,9 @@
 
                 const examId = Math.random().toString(36).substring(2, 8).toUpperCase();
                 
-                // Lưu Đề thi (Public)
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams_' + examId), {
+                // --- FIXED PATHS ---
+                // Store Exam in Collection: 'itex_exams', Document: {examId}
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams', examId), {
                     teacher: tName,
                     time: parseInt(tTime),
                     allow_review: tReview,
@@ -473,16 +688,17 @@
                     created_at: new Date().toISOString()
                 });
 
-                // Tạo document kết quả rỗng
-                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results_' + examId), {
+                // Store Results in Collection: 'itex_results', Document: {examId}
+                await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', examId), {
                     results: []
                 });
 
                 alert(`✅ Tạo đề thành công!\nMÃ ĐỀ THI: ${examId}`);
-                location.reload(); // Reset form
+                location.reload(); 
 
             } catch (e) {
                 alert("Lỗi: " + e.message);
+                console.error(e);
                 btn.disabled = false;
                 btn.innerText = "💾 Lưu & Lấy Mã Đề";
             }
@@ -496,7 +712,8 @@
             container.innerHTML = '<p class="text-center">Đang tải...</p>';
 
             try {
-                const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results_' + examId));
+                // Fix Path: itex_results/{examId}
+                const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', examId));
                 if (!docSnap.exists()) throw new Error("Không tìm thấy dữ liệu kết quả cho mã đề này");
 
                 const data = docSnap.data();
@@ -576,8 +793,8 @@
             btn.disabled = true;
 
             try {
-                // Sửa path để match với logic save: itex_exams_{ID}
-                const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams_' + examId));
+                // Fix Path: itex_exams/{examId}
+                const docSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_exams', examId));
                 if (!docSnap.exists()) throw new Error("Mã đề không tồn tại");
 
                 currentExamData = docSnap.data();
@@ -601,8 +818,8 @@
 
             if (!name || !school || !sClass) return alert("Vui lòng điền đầy đủ thông tin");
 
-            // Kiểm tra đã thi chưa (đọc từ kết quả)
-            const resSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results_' + currentExamData.id));
+            // Fix Path: itex_results/{examId}
+            const resSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', currentExamData.id));
             if (resSnap.exists()) {
                 const existing = resSnap.data().results.find(r => 
                     r.name.toLowerCase() === name.toLowerCase() && 
@@ -779,8 +996,8 @@
             };
 
             try {
-                // Add to array in Firestore using correct ID path (itex_results_{ID})
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results_' + currentExamData.id), {
+                // Fix Path: itex_results/{examId}
+                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', currentExamData.id), {
                     results: arrayUnion(resultObj)
                 });
                 
