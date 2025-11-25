@@ -248,6 +248,16 @@
             </div>
         </div>
     </div>
+    
+    <!-- Custom Modal for Alerts -->
+    <div id="custom-alert-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-[9999]">
+        <div class="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full text-center">
+            <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-3">Thông Báo</h3>
+            <p id="modal-message" class="text-gray-600 mb-6"></p>
+            <button onclick="document.getElementById('custom-alert-modal').classList.add('hidden')" class="btn bg-gray-500 hover:bg-gray-600">Đóng</button>
+        </div>
+    </div>
+
 
     <!-- Firebase Logic -->
     <script type="module">
@@ -267,6 +277,14 @@
 
         // Max Base64 size allowed for Firestore (approx 1.4MB in Base64 string length, safely below 1MB document limit)
         const MAX_BASE64_SIZE = 1468006; // Corresponds to approx 1.0MB file size when encoded.
+        
+        // Custom Alert Function (Replaces native alert)
+        window.customAlert = (message, title = "Thông Báo") => {
+            document.getElementById('modal-title').innerText = title;
+            document.getElementById('modal-message').innerText = message;
+            document.getElementById('custom-alert-modal').classList.remove('hidden');
+        };
+
 
         // AUTH & INIT FLOW
         if (Object.keys(firebaseConfig).length > 0) {
@@ -299,7 +317,7 @@
             // Fallback UI if Firebase not configured (for visual preview only)
             document.getElementById('loading').classList.add('hidden');
             document.getElementById('main-content').classList.remove('hidden');
-            alert("Lưu ý: Firebase chưa được cấu hình. Tính năng Lưu/Tải sẽ không hoạt động.");
+            window.customAlert("Ứng dụng đang chạy trong chế độ cục bộ/preview. Các tính năng Lưu, Tải và Chia sẻ đề thi/kết quả sẽ không hoạt động.", "Lưu ý cấu hình");
         }
 
 
@@ -361,8 +379,8 @@
             const sImgsInput = document.getElementById('batch-s-imgs');
             const container = document.getElementById('questions-list');
             
-            if(!excelInput.files[0]) return alert("Vui lòng chọn file Excel đáp án!");
-            if(qImgsInput.files.length === 0) return alert("Vui lòng chọn ảnh câu hỏi!");
+            if(!excelInput.files[0]) return customAlert("Vui lòng chọn file Excel đáp án!");
+            if(qImgsInput.files.length === 0) return customAlert("Vui lòng chọn ảnh câu hỏi!");
 
             const btn = btnElement || event.target;
             btn.disabled = true;
@@ -511,13 +529,13 @@
                         container.appendChild(div);
                     }
 
-                    alert(`Đã xử lý xong! Tìm thấy ${validRows.length-1} dòng dữ liệu.`); // -1 for header estimate
+                    customAlert(`Đã xử lý xong! Tìm thấy ${validRows.length-1} dòng dữ liệu.`); // -1 for header estimate
                     btn.disabled = false;
                     btn.innerText = "⚡ Xử Lý & Tạo Danh Sách";
 
                 } catch (err) {
                     console.error(err);
-                    alert("Lỗi xử lý file: " + err.message);
+                    customAlert("Lỗi xử lý file: " + err.message);
                     btn.disabled = false;
                     btn.innerText = "⚡ Xử Lý & Tạo Danh Sách";
                 }
@@ -612,7 +630,7 @@
 
             // Check if DB is initialized
             if (!db) {
-                alert("Lỗi: Firebase chưa được kết nối hoặc cấu hình sai.");
+                customAlert("Lỗi: Firebase chưa được kết nối hoặc cấu hình sai. Vui lòng kiểm tra môi trường chạy.");
                 btn.disabled = false;
                 btn.innerText = "💾 Lưu & Lấy Mã Đề";
                 return;
@@ -657,13 +675,12 @@
                          throw new Error(`Câu ${i+1} chưa chọn ảnh đề bài!`);
                     }
 
-                    // --- NEW SIZE CHECK ---
+                    // --- NEW SIZE CHECK (Prevent 1MB limit error) ---
                     if (imgBase64.length > MAX_BASE64_SIZE) {
-                         // Base64 string is about 1.33x the binary data size. 1.46MB Base64 is ~1MB binary.
-                        throw new Error(`Kích thước ảnh câu hỏi ${i + 1} quá lớn (${(imgBase64.length/1024/1024).toFixed(2)}MB). Vui lòng sử dụng ảnh có kích thước dưới 1MB.`);
+                        throw new Error(`Kích thước ảnh câu hỏi ${i + 1} quá lớn (${(imgBase64.length/1024/1024).toFixed(2)}MB Base64). Vui lòng sử dụng ảnh có kích thước gốc **dưới 1MB**.`);
                     }
                     if (solBase64 && solBase64.length > MAX_BASE64_SIZE) {
-                        throw new Error(`Kích thước ảnh lời giải câu hỏi ${i + 1} quá lớn (${(solBase64.length/1024/1024).toFixed(2)}MB). Vui lòng sử dụng ảnh có kích thước dưới 1MB.`);
+                        throw new Error(`Kích thước ảnh lời giải câu hỏi ${i + 1} quá lớn (${(solBase64.length/1024/1024).toFixed(2)}MB Base64). Vui lòng sử dụng ảnh có kích thước gốc **dưới 1MB**.`);
                     }
                     // --- END NEW SIZE CHECK ---
 
@@ -723,11 +740,11 @@
                     results: []
                 });
 
-                alert(`✅ Tạo đề thành công!\nMÃ ĐỀ THI: ${examId}`);
+                customAlert(`✅ Tạo đề thành công!\nMÃ ĐỀ THI: ${examId}`);
                 location.reload(); 
 
             } catch (e) {
-                alert(e.message);
+                customAlert(e.message, "Lỗi Lưu Đề Thi");
                 if (!e.message.startsWith("Vui lòng") && !e.message.startsWith("Đề thi") && !e.message.startsWith("Câu") && !e.message.startsWith("Kích thước")) {
                      console.error(e);
                 }
@@ -738,7 +755,7 @@
 
         window.loadResults = async () => {
             const examId = document.getElementById('result-exam-id').value.trim().toUpperCase();
-            if (!examId) return alert("Vui lòng nhập mã đề");
+            if (!examId) return customAlert("Vui lòng nhập mã đề");
 
             const container = document.getElementById('results-table-container');
             container.innerHTML = '<p class="text-center">Đang tải...</p>';
@@ -818,7 +835,7 @@
 
         window.checkExam = async () => {
             const examId = document.getElementById('s-exam-id').value.trim().toUpperCase();
-            if (!examId) return alert("Vui lòng nhập mã đề");
+            if (!examId) return customAlert("Vui lòng nhập mã đề");
 
             const btn = event.target;
             btn.innerText = "Đang kiểm tra...";
@@ -837,7 +854,7 @@
                 document.getElementById('exam-info-display').innerText = `Đề của GV: ${currentExamData.teacher} - Thời gian: ${currentExamData.time} phút`;
 
             } catch (e) {
-                alert(e.message);
+                customAlert(e.message);
                 btn.disabled = false;
                 btn.innerText = "Kiểm Tra Mã Đề";
             }
@@ -848,7 +865,7 @@
             const school = document.getElementById('s-school').value.trim();
             const sClass = document.getElementById('s-class').value.trim();
 
-            if (!name || !school || !sClass) return alert("Vui lòng điền đầy đủ thông tin");
+            if (!name || !school || !sClass) return customAlert("Vui lòng điền đầy đủ thông tin");
 
             // Fix Path: itex_results/{examId}
             const resSnap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'itex_results', currentExamData.id));
@@ -857,7 +874,7 @@
                     r.name.toLowerCase() === name.toLowerCase() && 
                     r.class_.toLowerCase() === sClass.toLowerCase()
                 );
-                if (existing) return alert("Bạn đã nộp bài thi này rồi! Không thể thi lại.");
+                if (existing) return customAlert("Bạn đã nộp bài thi này rồi! Không thể thi lại.");
             }
 
             const btn = event.target;
@@ -900,7 +917,7 @@
                 startTimer(currentExamData.time);
 
             } catch(e) {
-                alert("Lỗi khi tải đề thi: " + e.message);
+                customAlert("Lỗi khi tải đề thi: " + e.message);
                 btn.innerText = "🚀 BẮT ĐẦU LÀM BÀI";
                 btn.disabled = false;
             }
@@ -986,7 +1003,7 @@
                 
                 if (time <= 0) {
                     clearInterval(examTimer);
-                    alert("HẾT GIỜ! Hệ thống sẽ tự động nộp bài.");
+                    customAlert("HẾT GIỜ! Hệ thống sẽ tự động nộp bài.");
                     submitExam();
                 }
                 time--;
@@ -1069,7 +1086,7 @@
                 }
 
             } catch (e) {
-                alert("Lỗi nộp bài: " + e.message);
+                customAlert("Lỗi nộp bài: " + e.message, "Lỗi Hệ Thống");
                 console.error(e);
             }
         }
